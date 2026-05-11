@@ -1,0 +1,7 @@
+streamlit>=1.31.0
+openai>=1.12.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+streamlit-autorefresh>=1.0.1
+streamlit-extras>=0.4.0
+plotly>=5.18.0
