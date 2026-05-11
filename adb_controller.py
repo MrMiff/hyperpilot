@@ -21,7 +21,7 @@ class ActionType(Enum):
     SWIPE = "swipe"
     TYPE_TEXT = "type_text"
     OPEN_APP = "open_app"
-    Screenshot = "screenshot"
+    SCREENSHOT = "screenshot"
     SCREEN_RECORD = "screen_record"
     KEY_EVENT = "key_event"
     SHELL = "shell"
@@ -244,12 +244,7 @@ class ADBController:
             info.screen_on = "mHoldingDisplaySuspendBlocker=true" in r.output
 
         # Current activity
-        r = self._run(
-            "shell",
-            "dumpsys",
-            "activity",
-            "activities",
-        )
+        r = self._run("shell", "dumpsys", "activity", "activities")
         if r.success:
             match = re.search(r"mResumedActivity.*\{.*\s(\S+)/(\S+)", r.output)
             if match:
@@ -344,14 +339,11 @@ class ADBController:
 
     def open_app(self, package_or_name: str) -> ADBResult:
         """Open an app by package name or friendly name."""
-        # Try friendly name lookup
         name_lower = package_or_name.lower().strip()
         package = self.APP_PACKAGES.get(name_lower, package_or_name)
 
-        # Use monkey to launch (more reliable than am start for cold launch)
         result = self._run("shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1")
         if not result.success:
-            # Fallback: try am start
             result = self._run(
                 "shell", "am", "start", "-n", f"{package}/.MainActivity"
             )
@@ -377,15 +369,12 @@ class ADBController:
     def screenshot(self, local_path: str = "/tmp/hyperpilot_screen.png") -> ADBResult:
         """Capture device screenshot."""
         remote_path = "/sdcard/hyperpilot_screen.png"
-        # Take screenshot on device
         result = self._run("shell", "screencap", "-p", remote_path)
         if result.success:
-            # Pull to local
             result = self._run("pull", remote_path, local_path)
             if result.success:
                 self._last_screenshot = local_path
                 result.output = local_path
-                # Cleanup remote
                 self._run("shell", "rm", remote_path)
         return result
 
@@ -448,7 +437,6 @@ class ADBController:
                     ADBResult(success=False, error=f"Unknown action: {action_type}")
                 )
 
-            # Small delay between actions for stability
             if action_type != "wait":
                 time.sleep(0.1)
 

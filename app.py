@@ -381,19 +381,30 @@ st.markdown('<hr class="futuristic-divider">', unsafe_allow_html=True)
 
 
 # ─── ADB Check ──────────────────────────────────────────────────
+# ─── ADB Check ──────────────────────────────────────────────────
+# Demo mode toggle
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = False
 
-if not check_adb():
-    st.error("⚠️ **ADB not found.** Install Android platform-tools and ensure it's in your PATH.")
-    st.code("""
-# macOS (Homebrew)
-brew install android-platform-tools
+ADB_AVAILABLE = check_adb()
 
-# Ubuntu/Debian
-sudo apt install adb
-
-# Windows: Download from https://developer.android.com/studio/releases/platform-tools
-    """, language="bash")
-    st.stop()
+if not ADB_AVAILABLE:
+    # Show warning banner but DON'T stop — allow demo mode
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05));
+                border: 1px solid rgba(245,158,11,0.3); border-radius: 12px;
+                padding: 1rem 1.5rem; margin-bottom: 1rem;">
+        <span style="font-family: 'JetBrains Mono'; font-size: 0.85rem; color: #f59e0b;">
+            ⚠️ ADB not found — <strong>Demo Mode Active</strong>
+            <br><span style="font-size: 0.7rem; color: #92400e;">
+            Commands are simulated. Install ADB for real device control.
+            </span>
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.session_state.demo_mode = True
+else:
+    st.session_state.demo_mode = False
 
 
 # ─── Sidebar ────────────────────────────────────────────────────
@@ -412,18 +423,27 @@ with st.sidebar:
     # Device Connection
     st.markdown("### 📱 Device")
 
-    if st.button("🔍 Detect Device", use_container_width=True):
-        with st.spinner("Scanning for devices..."):
-            result = adb.check_connection()
-            if result.success:
-                info = refresh_device_info()
-                if info and info.connected:
-                    st.success(f"Connected: {info.model}")
-                    add_log("Device Connect", f"{info.model} ({info.serial})", "success")
+    if st.session_state.demo_mode:
+        st.markdown("""
+        <div class="status-card">
+            <div class="status-label">Mode</div>
+            <div class="status-value warning">🎭 Demo</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.caption("Connect a device via ADB to go live")
+    else:
+        if st.button("🔍 Detect Device", use_container_width=True):
+            with st.spinner("Scanning for devices..."):
+                result = adb.check_connection()
+                if result.success:
+                    info = refresh_device_info()
+                    if info and info.connected:
+                        st.success(f"Connected: {info.model}")
+                        add_log("Device Connect", f"{info.model} ({info.serial})", "success")
+                    else:
+                        st.error("No device found")
                 else:
-                    st.error("No device found")
-            else:
-                st.error(result.error)
+                    st.error(result.error)
 
     if st.session_state.connected and st.session_state.device_info:
         info = st.session_state.device_info
@@ -578,30 +598,56 @@ if execute and command:
     </div>
     """, unsafe_allow_html=True)
 
-    # Process
-    response: AgentResponse = agent.process_command(command)
-    thinking_placeholder.empty()
+    # DEMO MODE: simulate response
+    if st.session_state.demo_mode:
+        time.sleep(0.5)  # Simulate processing
+        from agent import CommandParser
+        _parser = CommandParser()
+        _actions = _parser.parse(command)
+        _flat = []
+        for _a in _actions:
+            if isinstance(_a, list):
+                _flat.extend(_a)
+            else:
+                _flat.append(_a)
 
-    # Show result
-    if response.success:
-        st.success(response.final_result)
-        add_log(command, response.final_result, "success")
+        if _flat:
+            _descriptions = [a.description for a in _flat if a.description]
+            resp_text = f"✅ [DEMO] {' → '.join(_descriptions) if _descriptions else 'Command parsed successfully'}"
+            st.success(resp_text)
+            add_log(command, resp_text, "success")
+            st.caption(f"⏱️ ~50ms • {len(_flat)} step(s) • 🎭 Demo Mode")
+            with st.expander("🧠 Agent Reasoning (Demo)", expanded=True):
+                for i, a in enumerate(_flat, 1):
+                    st.markdown(f"**Step {i}:** ✅ {a.description or a.action_type}")
+                    st.code(f"adb shell ... ({a.action_type})", language="bash")
+        else:
+            st.warning(f"🤔 [DEMO] Can't parse: '{command}'")
+            add_log(command, "Unrecognized command", "warning")
     else:
-        st.warning(response.final_result)
-        add_log(command, response.final_result, "warning")
+        # REAL MODE: process with ADB
+        response: AgentResponse = agent.process_command(command)
+        thinking_placeholder.empty()
 
-    # Show execution time
-    st.caption(f"⏱️ {response.execution_time_ms:.0f}ms • {len(response.steps)} step(s)")
+        if response.success:
+            st.success(response.final_result)
+            add_log(command, response.final_result, "success")
+        else:
+            st.warning(response.final_result)
+            add_log(command, response.final_result, "warning")
 
-    # Show reasoning
-    if response.steps:
-        with st.expander("🧠 Agent Reasoning", expanded=False):
-            for i, step in enumerate(response.steps, 1):
-                status = "✅" if step.result and step.result.success else "❌"
-                cmd = step.result.command if step.result else "?"
-                ms = f" ({step.result.duration_ms:.0f}ms)" if step.result else ""
-                st.markdown(f"**Step {i}:** {status} {step.thought}{ms}")
-                st.code(cmd, language="bash")
+        st.caption(f"⏱️ {response.execution_time_ms:.0f}ms • {len(response.steps)} step(s)")
+
+        if response.steps:
+            with st.expander("🧠 Agent Reasoning", expanded=False):
+                for i, step in enumerate(response.steps, 1):
+                    status = "✅" if step.result and step.result.success else "❌"
+                    cmd = step.result.command if step.result else "?"
+                    ms = f" ({step.result.duration_ms:.0f}ms)" if step.result else ""
+                    st.markdown(f"**Step {i}:** {status} {step.thought}{ms}")
+                    st.code(cmd, language="bash")
+
+    thinking_placeholder.empty()
 
 elif execute and not command:
     st.info("Type a command first! Try: `open youtube` or `go home`")
