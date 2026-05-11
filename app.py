@@ -387,17 +387,34 @@ if "demo_mode" not in st.session_state:
     st.session_state.demo_mode = False
 
 ADB_AVAILABLE = check_adb()
+DEVICE_CONNECTED = False
 
-if not ADB_AVAILABLE:
-    # Show warning banner but DON'T stop — allow demo mode
-    st.markdown("""
+if ADB_AVAILABLE:
+    # ADB exists, but check if device is actually connected
+    try:
+        import subprocess
+        _r = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
+        _lines = [l for l in _r.stdout.strip().split("\n")[1:] if l.strip() and "device" in l and "offline" not in l]
+        DEVICE_CONNECTED = len(_lines) > 0
+    except Exception:
+        DEVICE_CONNECTED = False
+
+if not ADB_AVAILABLE or not DEVICE_CONNECTED:
+    # No ADB or no device → demo mode
+    if not ADB_AVAILABLE:
+        msg = "⚠️ ADB not found — <strong>Demo Mode Active</strong>"
+        sub = "Install Android platform-tools for real device control."
+    else:
+        msg = "📱 No device connected — <strong>Demo Mode Active</strong>"
+        sub = "Connect via USB/WiFi ADB for live control. Commands are simulated."
+    st.markdown(f"""
     <div style="background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05));
                 border: 1px solid rgba(245,158,11,0.3); border-radius: 12px;
                 padding: 1rem 1.5rem; margin-bottom: 1rem;">
         <span style="font-family: 'JetBrains Mono'; font-size: 0.85rem; color: #f59e0b;">
-            ⚠️ ADB not found — <strong>Demo Mode Active</strong>
+            {msg}
             <br><span style="font-size: 0.7rem; color: #92400e;">
-            Commands are simulated. Install ADB for real device control.
+            {sub}
             </span>
         </span>
     </div>
@@ -560,15 +577,19 @@ command = st.text_input(
     label_visibility="collapsed",
 )
 
-# Check if a quick action was clicked
+# Check if a quick action was clicked → auto-execute
 if "pending_command" in st.session_state:
     command = st.session_state.pop("pending_command")
+    execute = True
+else:
+    execute = False
 
-# Action buttons
+# Action buttons (only check Execute if no quick action triggered)
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([2, 1, 1, 1])
 
 with btn_col1:
-    execute = st.button("⚡ Execute Command", type="primary", use_container_width=True)
+    if not execute:
+        execute = st.button("⚡ Execute Command", type="primary", use_container_width=True)
 
 with btn_col2:
     if st.button("📷 Screenshot", use_container_width=True):
